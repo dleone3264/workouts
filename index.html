@@ -292,6 +292,12 @@
     }
     return allDays.length - 1;
   }
+  // A week counts as "complete" once it has fully passed — by date, not by what was logged.
+  function isWeekPast(dates) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return dates[6] < today;
+  }
 
   // Plain-browser persistence: window.storage only exists inside Claude's own artifact
   // preview. Outside that (GitHub Pages, any normal hosting), it's undefined — so every
@@ -706,7 +712,7 @@
     weeks.forEach((dates) => {
       const wp = weekProgress(dates);
       programDone += wp.done; programTotal += wp.total;
-      if (wp.total > 0 && wp.done === wp.total) weeksComplete += 1;
+      if (isWeekPast(dates)) weeksComplete += 1;
       const rp = weekCategoryProgress(dates, "run"); runPlan.done += rp.done; runPlan.total += rp.total;
       const yp = weekCategoryProgress(dates, "yoga"); yogaPlan.done += yp.done; yogaPlan.total += yp.total;
       const mp = weekCategoryProgress(dates, "mobility"); mobilityPlan.done += mp.done; mobilityPlan.total += mp.total;
@@ -977,7 +983,7 @@
     weeks.forEach((dates, wi) => {
       const wp = weekProgress(dates);
       const wPct = wp.total ? Math.round((wp.done / wp.total) * 100) : 0;
-      const complete = wp.total > 0 && wp.done === wp.total;
+      const complete = isWeekPast(dates);
       const isOpen = !!openWeeks[wi];
       const hideProgress = dates[0] <= NO_PROGRESS_END && dates[6] >= NO_PROGRESS_START;
 
