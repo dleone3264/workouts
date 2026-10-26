@@ -118,6 +118,8 @@
   .lc-ex .sets { display: block; color: var(--text-secondary); font-size: 10.5px; }
   .lc-ex .lc-log-input { display: block; margin-top: 4px; width: 100%; max-width: 160px; font-size: 11.5px; font-family: 'Inter', sans-serif; color: var(--text-primary); background: var(--surface); border: 0.5px solid var(--border-mid); border-radius: 5px; padding: 4px 7px; box-sizing: border-box; }
   .lc-ex .lc-log-input:focus { outline: none; border-color: var(--check-color); }
+  .lc-ex .lc-activity-name { display: block; width: 100%; max-width: 160px; font-size: 12px; font-weight: 600; font-family: 'Inter', sans-serif; color: var(--text-primary); background: var(--surface); border: 0.5px solid var(--border-mid); border-radius: 5px; padding: 4px 7px; box-sizing: border-box; }
+  .lc-ex .lc-activity-name:focus { outline: none; border-color: var(--check-color); }
   .lc-toggle { display: none; font-size: 10.5px; color: var(--text-secondary); margin-top: 8px; text-align: center; }
   .lc-day.open .lc-toggle { display: block; }
   .lc-rest-note { display: none; font-size: 12px; color: var(--text-secondary); font-style: italic; padding: 6px 0; }
@@ -165,6 +167,8 @@
   .lc-dv-ex .sets { color: var(--text-secondary); font-size: 12px; display: block; margin-top: 1px; }
   .lc-dv-ex .lc-log-input { display: block; margin-top: 6px; width: 100%; font-size: 13px; font-family: 'Inter', sans-serif; color: var(--text-primary); background: var(--surface); border: 0.5px solid var(--border-mid); border-radius: 6px; padding: 6px 9px; box-sizing: border-box; }
   .lc-dv-ex .lc-log-input:focus { outline: none; border-color: var(--check-color); }
+  .lc-dv-ex .lc-activity-name { display: block; width: 100%; font-size: 14px; font-weight: 600; font-family: 'Inter', sans-serif; color: var(--text-primary); background: var(--surface); border: 0.5px solid var(--border-mid); border-radius: 6px; padding: 6px 9px; box-sizing: border-box; }
+  .lc-dv-ex .lc-activity-name:focus { outline: none; border-color: var(--check-color); }
   .lc-dv-rest { text-align: center; color: var(--text-secondary); font-style: italic; padding: 30px 0; }
   .lc-dv-jump { display: flex; justify-content: center; margin-top: 14px; }
   .lc-dv-jump button { border: none; background: none; color: var(--check-color); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 6px 10px; }
@@ -220,6 +224,7 @@
   const RUN_EXTRA = { n: "Run", s: "", color: "#A8654F", badgeBg: "#f0e0d8", badgeText: "#7a4632" };
   const YOGA_EXTRA = { n: "Yoga", s: "", color: "#C9A05C", badgeBg: "#f2e6d0", badgeText: "#8a6a2e" };
   const MOBILITY_EXTRA = { n: "Mobility", s: "", color: "#6B8299", badgeBg: "#dee6ec", badgeText: "#3f5c73" };
+  const CUSTOM_EXTRA = { color: "#8A6A9E", badgeBg: "#ece3f0", badgeText: "#5c4268" };
   // Sun, Mon, Tue, Wed, Thu, Fri, Sat
   const DEFAULT_ORDER = ["bench", "shouldersA", "lowerA", "bench", "lowerB", "shouldersB", "rest"];
   const DEFAULT_EXTRA_RUN = [false, false, true, false, true, false, true]; // Tue, Thu run before lifting; Sat is run-only
@@ -238,6 +243,7 @@
   let mobilityOverrides = {}; // dateIso -> true/false, one-off exceptions to the recurring extraMobility pattern
   let dayTypeOverrides = {}; // dateIso -> type key, one-off exceptions to the recurring dayTypes pattern
   let runOverrides = {};     // dateIso -> true/false, one-off exceptions to the recurring extraRun pattern
+  let customActivities = {}; // dateIso -> activity name (e.g. "Cycling"); presence = added for that day only
   let checks = {};
   let logs = {};
   let openWeeks = {};
@@ -353,6 +359,10 @@
       if (ro && ro.value) runOverrides = JSON.parse(ro.value);
     } catch (e) {}
     try {
+      const ca = await storeGet("runlift-cal-customactivities");
+      if (ca && ca.value) customActivities = JSON.parse(ca.value);
+    } catch (e) {}
+    try {
       const c = await storeGet("runlift-cal-checks");
       if (c && c.value) checks = JSON.parse(c.value);
     } catch (e) {}
@@ -450,6 +460,9 @@
   async function saveRunOverrides() {
     try { await storeSet("runlift-cal-runoverrides", JSON.stringify(runOverrides)); } catch (e) {}
   }
+  async function saveCustomActivities() {
+    try { await storeSet("runlift-cal-customactivities", JSON.stringify(customActivities)); } catch (e) {}
+  }
   // Effective on/off state for a specific date: a one-off override wins over the recurring weekly pattern.
   function effectiveYoga(dateIso, dowIndex) {
     return yogaOverrides.hasOwnProperty(dateIso) ? yogaOverrides[dateIso] : !!extraYoga[dowIndex];
@@ -480,6 +493,11 @@
       const a = effectiveMobility(src.dIso, src.day), b = effectiveMobility(target.dIso, target.day);
       mobilityOverrides[src.dIso] = b; mobilityOverrides[target.dIso] = a;
       await saveMobilityOverrides();
+    } else if (comp === "custom") {
+      const a = customActivities[src.dIso], b = customActivities[target.dIso];
+      if (b !== undefined) customActivities[src.dIso] = b; else delete customActivities[src.dIso];
+      if (a !== undefined) customActivities[target.dIso] = a; else delete customActivities[target.dIso];
+      await saveCustomActivities();
     }
   }
   async function saveChecks() {
@@ -586,6 +604,11 @@
           const key = `${dIso}-extra-mobility`;
           rows.push([dIso, dayName, "Mobility", MOBILITY_EXTRA.n, MOBILITY_EXTRA.s, (checks[key] === "done" ? "Done" : checks[key] === "skipped" ? "Skipped" : ""), logs[key] || ""]);
         }
+        if (customActivities.hasOwnProperty(dIso)) {
+          const key = `${dIso}-extra-custom`;
+          const name = customActivities[dIso] || "Activity";
+          rows.push([dIso, dayName, "Custom", name, "", (checks[key] === "done" ? "Done" : checks[key] === "skipped" ? "Skipped" : ""), logs[key] || ""]);
+        }
       });
     });
     const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
@@ -601,19 +624,20 @@
     showToast("Export downloaded");
   }
 
-  function dayExerciseCount(typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility) {
-    return TYPES[typeKey].exercises.length + (hasExtraRun ? 1 : 0) + (hasExtraYoga ? 1 : 0) + (hasExtraMobility ? 1 : 0);
+  function dayExerciseCount(typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity) {
+    return TYPES[typeKey].exercises.length + (hasExtraRun ? 1 : 0) + (hasExtraYoga ? 1 : 0) + (hasExtraMobility ? 1 : 0) + (hasCustomActivity ? 1 : 0);
   }
-  function dayProgress(dateIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility) {
-    const total = dayExerciseCount(typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
+  function dayProgress(dateIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity) {
+    const total = dayExerciseCount(typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
     if (!total) return { done: 0, total: 0 };
     let done = TYPES[typeKey].exercises.filter((_, i) => checks[`${dateIso}-${i}`] === "done").length;
     if (hasExtraRun && checks[`${dateIso}-extra-run`] === "done") done += 1;
     if (hasExtraYoga && checks[`${dateIso}-extra-yoga`] === "done") done += 1;
     if (hasExtraMobility && checks[`${dateIso}-extra-mobility`] === "done") done += 1;
+    if (hasCustomActivity && checks[`${dateIso}-extra-custom`] === "done") done += 1;
     return { done, total };
   }
-  function daySegments(dateIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility) {
+  function daySegments(dateIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity) {
     const type = TYPES[typeKey];
     const segments = [];
     if (hasExtraRun) {
@@ -629,6 +653,9 @@
     if (hasExtraMobility) {
       segments.push({ total: 1, done: checks[`${dateIso}-extra-mobility`] === "done" ? 1 : 0, color: MOBILITY_EXTRA.color });
     }
+    if (hasCustomActivity) {
+      segments.push({ total: 1, done: checks[`${dateIso}-extra-custom`] === "done" ? 1 : 0, color: CUSTOM_EXTRA.color });
+    }
     return segments;
   }
   function segmentedBarHtml(segments, trackClass, fillClass) {
@@ -643,7 +670,7 @@
     let done = 0, total = 0;
     dates.forEach((d, i) => {
       const dIso = isoDate(d);
-      const p = dayProgress(dIso, effectiveDayType(dIso, i), effectiveRun(dIso, i), effectiveYoga(dIso, i), effectiveMobility(dIso, i));
+      const p = dayProgress(dIso, effectiveDayType(dIso, i), effectiveRun(dIso, i), effectiveYoga(dIso, i), effectiveMobility(dIso, i), customActivities.hasOwnProperty(dIso));
       done += p.done; total += p.total;
     });
     return { done, total };
@@ -801,12 +828,15 @@
     const hasExtraRun = effectiveRun(dIso, entry.dowIndex);
     const hasExtraYoga = effectiveYoga(dIso, entry.dowIndex);
     const hasExtraMobility = effectiveMobility(dIso, entry.dowIndex);
-    const p = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
+    const hasCustomActivity = customActivities.hasOwnProperty(dIso);
+    const customName = customActivities[dIso] || "";
+    const p = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
     const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
-    const segs = daySegments(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
+    const segs = daySegments(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
     const extraKey = `${dIso}-extra-run`;
     const extraYogaKey = `${dIso}-extra-yoga`;
     const extraMobilityKey = `${dIso}-extra-mobility`;
+    const extraCustomKey = `${dIso}-extra-custom`;
 
     const wrap = document.createElement("div");
     wrap.className = "lc-dayview";
@@ -826,6 +856,7 @@
           ${hasExtraRun ? `<span class="lc-type-badge" style="background:${RUN_EXTRA.badgeBg};color:${RUN_EXTRA.badgeText}">Run</span>` : ""}
           ${hasExtraYoga ? `<span class="lc-type-badge" style="background:${YOGA_EXTRA.badgeBg};color:${YOGA_EXTRA.badgeText}">Yoga</span>` : ""}
           ${hasExtraMobility ? `<span class="lc-type-badge" style="background:${MOBILITY_EXTRA.badgeBg};color:${MOBILITY_EXTRA.badgeText}">Mobility</span>` : ""}
+          ${hasCustomActivity ? `<span class="lc-type-badge" style="background:${CUSTOM_EXTRA.badgeBg};color:${CUSTOM_EXTRA.badgeText}">${customName || "Activity"}</span>` : ""}
         </div>
       </div>
       ${p.total ? `<div class="lc-dv-progress-track">${segmentedBarHtml(segs, "lc-dv-progress-track", "lc-dv-progress-fill")}</div>` : ""}
@@ -833,6 +864,7 @@
       <div class="lc-dv-add-row">
         ${!hasExtraYoga ? `<button class="lc-add-btn" id="lc-dv-add-yoga">+ Yoga</button>` : ""}
         ${!hasExtraMobility ? `<button class="lc-add-btn" id="lc-dv-add-mobility">+ Mobility</button>` : ""}
+        ${!hasCustomActivity ? `<button class="lc-add-btn" id="lc-dv-add-custom">+ Activity</button>` : ""}
       </div>
       <div class="lc-dv-jump"><button id="lc-dv-today">Jump to today</button></div>
     `;
@@ -855,7 +887,7 @@
           </span>`;
         li.addEventListener("click", (e) => {
           if (e.target.classList.contains("lc-log-input")) return;
-          toggleDayViewCheck(extraKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, wrap);
+          toggleDayViewCheck(extraKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity, wrap);
         });
         const runInput = li.querySelector(".lc-log-input");
         runInput.addEventListener("click", (e) => e.stopPropagation());
@@ -877,7 +909,7 @@
           </span>`;
         li.addEventListener("click", (e) => {
           if (e.target.classList.contains("lc-log-input")) return;
-          toggleDayViewCheck(key, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, wrap);
+          toggleDayViewCheck(key, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity, wrap);
         });
         const input = li.querySelector(".lc-log-input");
         input.addEventListener("click", (e) => e.stopPropagation());
@@ -905,7 +937,7 @@
         });
         li.addEventListener("click", (e) => {
           if (e.target.classList.contains("lc-remove-btn") || e.target.classList.contains("lc-log-input")) return;
-          toggleDayViewCheck(extraYogaKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, wrap);
+          toggleDayViewCheck(extraYogaKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity, wrap);
         });
         const yogaInput = li.querySelector(".lc-log-input");
         yogaInput.addEventListener("click", (e) => e.stopPropagation());
@@ -933,12 +965,48 @@
         });
         li.addEventListener("click", (e) => {
           if (e.target.classList.contains("lc-remove-btn") || e.target.classList.contains("lc-log-input")) return;
-          toggleDayViewCheck(extraMobilityKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, wrap);
+          toggleDayViewCheck(extraMobilityKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity, wrap);
         });
         const mobilityInput = li.querySelector(".lc-log-input");
         mobilityInput.addEventListener("click", (e) => e.stopPropagation());
         mobilityInput.addEventListener("change", async () => {
           logs[extraMobilityKey] = mobilityInput.value;
+          await saveLogs();
+        });
+        ul.appendChild(li);
+      }
+      if (hasCustomActivity) {
+        const state = boxState(extraCustomKey);
+        const logVal = (logs[extraCustomKey] || "").replace(/"/g, "&quot;");
+        const nameVal = customName.replace(/"/g, "&quot;");
+        const li = document.createElement("li");
+        li.className = "lc-dv-ex" + (state === "done" ? " checked" : state === "skipped" ? " skipped" : "");
+        li.innerHTML = `${boxHtml(extraCustomKey, CUSTOM_EXTRA.color)}
+          <span style="flex:1">
+            <input type="text" class="lc-activity-name" placeholder="Activity name" value="${nameVal}" />
+            <input type="text" class="lc-log-input" placeholder="notes" value="${logVal}" />
+          </span>
+          <button class="lc-remove-btn" data-remove="custom" title="Remove this activity from this day">×</button>`;
+        li.querySelector(".lc-remove-btn").addEventListener("click", async (e) => {
+          e.stopPropagation();
+          delete customActivities[dIso];
+          await saveCustomActivities();
+          render();
+        });
+        li.addEventListener("click", (e) => {
+          if (e.target.classList.contains("lc-remove-btn") || e.target.classList.contains("lc-log-input") || e.target.classList.contains("lc-activity-name")) return;
+          toggleDayViewCheck(extraCustomKey, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity, wrap);
+        });
+        const nameInput = li.querySelector(".lc-activity-name");
+        nameInput.addEventListener("click", (e) => e.stopPropagation());
+        nameInput.addEventListener("change", async () => {
+          customActivities[dIso] = nameInput.value;
+          await saveCustomActivities();
+        });
+        const customInput = li.querySelector(".lc-log-input");
+        customInput.addEventListener("click", (e) => e.stopPropagation());
+        customInput.addEventListener("change", async () => {
+          logs[extraCustomKey] = customInput.value;
           await saveLogs();
         });
         ul.appendChild(li);
@@ -958,16 +1026,22 @@
       await saveMobilityOverrides();
       render();
     });
+    const addCustomBtn = wrap.querySelector("#lc-dv-add-custom");
+    if (addCustomBtn) addCustomBtn.addEventListener("click", async () => {
+      customActivities[dIso] = "";
+      await saveCustomActivities();
+      render();
+    });
 
     wrap.querySelector("#lc-dv-prev").addEventListener("click", () => { dayViewIndex -= 1; render(); });
     wrap.querySelector("#lc-dv-next").addEventListener("click", () => { dayViewIndex += 1; render(); });
     wrap.querySelector("#lc-dv-today").addEventListener("click", () => { dayViewIndex = defaultDayIndex(allDays); render(); });
   }
 
-  async function toggleDayViewCheck(key, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, wrap) {
+  async function toggleDayViewCheck(key, dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity, wrap) {
     cycleCheck(key);
     await saveChecks();
-    const np = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
+    const np = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
     if (checks[key] === "done" && np.total > 0 && np.done === np.total) {
       const rect = wrap.getBoundingClientRect();
       confettiBurst(rect.left + rect.width / 2, rect.top + 80);
@@ -1018,8 +1092,10 @@
         const hasExtraRun = effectiveRun(dIso, i);
         const hasExtraYoga = effectiveYoga(dIso, i);
         const hasExtraMobility = effectiveMobility(dIso, i);
-        const p = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
-        const segs = daySegments(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
+        const hasCustomActivity = customActivities.hasOwnProperty(dIso);
+        const customName = customActivities[dIso] || "";
+        const p = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
+        const segs = daySegments(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
         const dayComplete = p.total > 0 && p.done === p.total;
         const card = document.createElement("div");
         card.className = "lc-day" + (dayComplete ? " complete" : "") + (openDays[dIso] ? " open" : "");
@@ -1031,6 +1107,8 @@
         const extraYogaState = boxState(extraYogaKey);
         const extraMobilityKey = `${dIso}-extra-mobility`;
         const extraMobilityState = boxState(extraMobilityKey);
+        const extraCustomKey = `${dIso}-extra-custom`;
+        const extraCustomState = boxState(extraCustomKey);
 
         function compHead(comp, label, badgeBg, badgeText, removable) {
           const selected = swapSelected && swapSelected.day === i && swapSelected.comp === comp;
@@ -1105,17 +1183,32 @@
             </ul>
           </div>` : "";
 
-        const addRowHtml = (!hasExtraYoga || !hasExtraMobility) ? `
+        const customCompHtml = hasCustomActivity ? `
+          <div class="lc-comp${compClass("custom")}" draggable="true" data-comp="custom">
+            ${compHead("custom", customName || "Activity", CUSTOM_EXTRA.badgeBg, CUSTOM_EXTRA.badgeText, true)}
+            <ul class="lc-ex-list">
+              <li class="lc-ex${exClass(extraCustomState)}" data-key="${extraCustomKey}">
+                ${boxHtml(extraCustomKey, CUSTOM_EXTRA.color)}
+                <span style="flex:1">
+                  <input type="text" class="lc-activity-name" data-name-key="${dIso}" placeholder="Activity name" value="${(customName || "").replace(/"/g, "&quot;")}" />
+                  <input type="text" class="lc-log-input" data-log-key="${extraCustomKey}" placeholder="notes" value="${(logs[extraCustomKey] || "").replace(/"/g, "&quot;")}" />
+                </span>
+              </li>
+            </ul>
+          </div>` : "";
+
+        const addRowHtml = (!hasExtraYoga || !hasExtraMobility || !hasCustomActivity) ? `
           <div class="lc-comp-add-row">
             ${!hasExtraYoga ? `<button class="lc-add-btn-sm" data-add="yoga">+ Yoga</button>` : ""}
             ${!hasExtraMobility ? `<button class="lc-add-btn-sm" data-add="mobility">+ Mobility</button>` : ""}
+            ${!hasCustomActivity ? `<button class="lc-add-btn-sm" data-add="custom">+ Activity</button>` : ""}
           </div>` : "";
 
         card.innerHTML = `
           <div class="lc-day-name">${DAY_NAMES[i]}</div>
           <div class="lc-day-date">${fmtDate(d)}</div>
           ${p.total ? `<div class="lc-progress-track-day">${segmentedBarHtml(segs, "lc-progress-track-day", "lc-progress-fill")}</div>` : ""}
-          <div class="lc-comp-list">${runCompHtml}${liftCompHtml}${yogaCompHtml}${mobilityCompHtml}</div>
+          <div class="lc-comp-list">${runCompHtml}${liftCompHtml}${yogaCompHtml}${mobilityCompHtml}${customCompHtml}</div>
           ${addRowHtml}
           ${p.total ? `<div class="lc-toggle">tap a block to toggle exercises</div>` : ""}
         `;
@@ -1127,7 +1220,7 @@
         });
         card.querySelectorAll(".lc-ex").forEach((li) => {
           li.addEventListener("click", async (e) => {
-            if (e.target.classList.contains("lc-log-input")) return;
+            if (e.target.classList.contains("lc-log-input") || e.target.classList.contains("lc-activity-name")) return;
             e.stopPropagation();
             const key = li.dataset.key;
             cycleCheck(key);
@@ -1135,7 +1228,7 @@
             const wasWeekComplete = complete;
             const newWp = weekProgress(dates);
             const nowWeekComplete = newWp.total > 0 && newWp.done === newWp.total;
-            const np = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility);
+            const np = dayProgress(dIso, typeKey, hasExtraRun, hasExtraYoga, hasExtraMobility, hasCustomActivity);
             if (checks[key] === "done" && np.total > 0 && np.done === np.total) {
               const rect = card.getBoundingClientRect();
               confettiBurst(rect.left + rect.width / 2, rect.top + rect.height / 2);
@@ -1149,6 +1242,13 @@
           input.addEventListener("change", async () => {
             logs[input.dataset.logKey] = input.value;
             await saveLogs();
+          });
+        });
+        card.querySelectorAll(".lc-activity-name").forEach((input) => {
+          input.addEventListener("click", (e) => e.stopPropagation());
+          input.addEventListener("change", async () => {
+            customActivities[input.dataset.nameKey] = input.value;
+            await saveCustomActivities();
           });
         });
 
@@ -1191,24 +1291,26 @@
           });
         });
 
-        // Remove an optional (yoga/mobility) block from this day — one-off, just this date
+        // Remove an optional (yoga/mobility/custom) block from this day — one-off, just this date
         card.querySelectorAll(".lc-remove-btn").forEach((btn) => {
           btn.addEventListener("click", async (e) => {
             e.stopPropagation();
             const comp = btn.dataset.removeComp;
             if (comp === "yoga") { yogaOverrides[dIso] = false; await saveYogaOverrides(); }
             else if (comp === "mobility") { mobilityOverrides[dIso] = false; await saveMobilityOverrides(); }
+            else if (comp === "custom") { delete customActivities[dIso]; await saveCustomActivities(); }
             render();
           });
         });
 
-        // Add yoga/mobility to this day on the fly — one-off, just this date
+        // Add yoga/mobility/a custom activity to this day on the fly — one-off, just this date
         card.querySelectorAll(".lc-add-btn-sm").forEach((btn) => {
           btn.addEventListener("click", async (e) => {
             e.stopPropagation();
             const comp = btn.dataset.add;
             if (comp === "yoga") { yogaOverrides[dIso] = true; await saveYogaOverrides(); }
             else if (comp === "mobility") { mobilityOverrides[dIso] = true; await saveMobilityOverrides(); }
+            else if (comp === "custom") { customActivities[dIso] = ""; await saveCustomActivities(); }
             render();
           });
         });
@@ -1228,6 +1330,8 @@
           delete checks[`${dIso}-extra-run`];
           delete checks[`${dIso}-extra-yoga`];
           delete checks[`${dIso}-extra-mobility`];
+          delete checks[`${dIso}-extra-custom`];
+          delete logs[`${dIso}-extra-custom`];
         });
         await saveChecks();
         await saveLogs();
