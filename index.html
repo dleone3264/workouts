@@ -972,11 +972,14 @@
   function renderWeekView(container, weeks) {
     const weeksEl = document.createElement("div");
     container.appendChild(weeksEl);
+    const NO_PROGRESS_START = new Date(2026, 9, 11); // Oct 11, 2026
+    const NO_PROGRESS_END = new Date(2026, 10, 6);   // Nov 6, 2026
     weeks.forEach((dates, wi) => {
       const wp = weekProgress(dates);
       const wPct = wp.total ? Math.round((wp.done / wp.total) * 100) : 0;
       const complete = wp.total > 0 && wp.done === wp.total;
       const isOpen = !!openWeeks[wi];
+      const hideProgress = dates[0] <= NO_PROGRESS_END && dates[6] >= NO_PROGRESS_START;
 
       const weekEl = document.createElement("div");
       weekEl.className = "lc-week" + (isOpen ? " open" : "") + (complete ? " week-complete" : "");
@@ -988,8 +991,8 @@
             <span class="lc-week-dates">${fmtDate(dates[0])} – ${fmtDate(dates[6])}</span>
           </div>
           <div class="lc-week-head-left">
-            <div class="lc-week-mini-track"><div class="lc-week-mini-fill" style="width:${wPct}%"></div></div>
-            <span class="lc-week-pct">${wPct}%</span>
+            ${hideProgress ? "" : `<div class="lc-week-mini-track"><div class="lc-week-mini-fill" style="width:${wPct}%"></div></div>
+            <span class="lc-week-pct">${wPct}%</span>`}
           </div>
         </div>
         <div class="lc-week-body">
