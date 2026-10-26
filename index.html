@@ -379,13 +379,13 @@
       dayTypes[3] = "bench";
       await saveDayTypes();
     }
-    // One-time recovery pause: no lifting or running from the surgery date (Oct 10, 2026)
+    // One-time recovery pause: no lifting or running from the ER visit (Oct 7, 2026)
     // through 4 weeks out (Nov 6, 2026) — applied as one-off per-date overrides, so the
     // regular weekly pattern resumes automatically on Nov 7 without needing to be rebuilt.
     try {
-      const rc = await storeGet("runlift-cal-recovery-applied-v1");
+      const rc = await storeGet("runlift-cal-recovery-applied-v2");
       if (!rc || !rc.value) {
-        const RECOVERY_START = new Date(2026, 9, 10);  // Oct 10, 2026
+        const RECOVERY_START = new Date(2026, 9, 7);   // Oct 7, 2026 (ER visit)
         const RECOVERY_END = new Date(2026, 10, 6);    // Nov 6, 2026
         const cursor = new Date(RECOVERY_START);
         while (cursor <= RECOVERY_END) {
@@ -396,16 +396,16 @@
         }
         await saveDayTypeOverrides();
         await saveRunOverrides();
-        await storeSet("runlift-cal-recovery-applied-v1", "true");
+        await storeSet("runlift-cal-recovery-applied-v2", "true");
       }
     } catch (e) {}
-    // One-time: pause Yoga/Mobility for the first 2 weeks of recovery only (Oct 10-25, 2026).
+    // One-time: pause Yoga/Mobility from the ER visit through Oct 25, 2026.
     // No override is set from Oct 26 onward, so they resume on their normal pattern automatically.
     try {
-      const yp = await storeGet("runlift-cal-yogapause-applied-v1");
+      const yp = await storeGet("runlift-cal-yogapause-applied-v2");
       if (!yp || !yp.value) {
-        const PAUSE_START = new Date(2026, 9, 10);  // Oct 10, 2026
-        const PAUSE_END = new Date(2026, 9, 25);    // Oct 25, 2026
+        const PAUSE_START = new Date(2026, 9, 7);   // Oct 7, 2026 (ER visit)
+        const PAUSE_END = new Date(2026, 9, 25);    // Oct 25, 2026 (resumes Oct 26)
         const cursor2 = new Date(PAUSE_START);
         while (cursor2 <= PAUSE_END) {
           const pIso = isoDate(cursor2);
@@ -415,7 +415,7 @@
         }
         await saveYogaOverrides();
         await saveMobilityOverrides();
-        await storeSet("runlift-cal-yogapause-applied-v1", "true");
+        await storeSet("runlift-cal-yogapause-applied-v2", "true");
       }
     } catch (e) {}
     render();
