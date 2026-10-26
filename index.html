@@ -293,49 +293,69 @@
     return allDays.length - 1;
   }
 
+  // Plain-browser persistence: window.storage only exists inside Claude's own artifact
+  // preview. Outside that (GitHub Pages, any normal hosting), it's undefined — so every
+  // save/load would silently no-op. These wrappers use real localStorage instead, with the
+  // same async {value} shape the rest of the code expects, and fall back to window.storage
+  // only if it happens to be present (e.g. previewing inside Claude itself).
+  async function storeGet(key) {
+    if (window.storage && window.storage.get) {
+      try { return await window.storage.get(key, false); } catch (e) {}
+    }
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? null : { value: v };
+    } catch (e) { return null; }
+  }
+  async function storeSet(key, value) {
+    if (window.storage && window.storage.set) {
+      try { return await window.storage.set(key, value, false); } catch (e) {}
+    }
+    try { localStorage.setItem(key, value); return { key, value }; } catch (e) { return null; }
+  }
   async function load() {
     try {
-      const t = await window.storage.get("runlift-cal-daytypes", false);
+      const t = await storeGet("runlift-cal-daytypes");
       if (t && t.value) dayTypes = JSON.parse(t.value);
     } catch (e) {}
     try {
-      const r = await window.storage.get("runlift-cal-extraruns", false);
+      const r = await storeGet("runlift-cal-extraruns");
       if (r && r.value) extraRun = JSON.parse(r.value);
     } catch (e) {}
     try {
-      const y = await window.storage.get("runlift-cal-extrayoga", false);
+      const y = await storeGet("runlift-cal-extrayoga");
       if (y && y.value) extraYoga = JSON.parse(y.value);
     } catch (e) {}
     try {
-      const mb = await window.storage.get("runlift-cal-extramobility", false);
+      const mb = await storeGet("runlift-cal-extramobility");
       if (mb && mb.value) extraMobility = JSON.parse(mb.value);
     } catch (e) {}
     try {
-      const yo = await window.storage.get("runlift-cal-yogaoverrides", false);
+      const yo = await storeGet("runlift-cal-yogaoverrides");
       if (yo && yo.value) yogaOverrides = JSON.parse(yo.value);
     } catch (e) {}
     try {
-      const mo = await window.storage.get("runlift-cal-mobilityoverrides", false);
+      const mo = await storeGet("runlift-cal-mobilityoverrides");
       if (mo && mo.value) mobilityOverrides = JSON.parse(mo.value);
     } catch (e) {}
     try {
-      const dto = await window.storage.get("runlift-cal-daytypeoverrides", false);
+      const dto = await storeGet("runlift-cal-daytypeoverrides");
       if (dto && dto.value) dayTypeOverrides = JSON.parse(dto.value);
     } catch (e) {}
     try {
-      const ro = await window.storage.get("runlift-cal-runoverrides", false);
+      const ro = await storeGet("runlift-cal-runoverrides");
       if (ro && ro.value) runOverrides = JSON.parse(ro.value);
     } catch (e) {}
     try {
-      const c = await window.storage.get("runlift-cal-checks", false);
+      const c = await storeGet("runlift-cal-checks");
       if (c && c.value) checks = JSON.parse(c.value);
     } catch (e) {}
     try {
-      const lg = await window.storage.get("runlift-cal-logs", false);
+      const lg = await storeGet("runlift-cal-logs");
       if (lg && lg.value) logs = JSON.parse(lg.value);
     } catch (e) {}
     try {
-      const v = await window.storage.get("runlift-cal-viewmode", false);
+      const v = await storeGet("runlift-cal-viewmode");
       if (v && v.value) viewMode = v.value;
     } catch (e) {}
     // barMode intentionally not restored from storage — all progress bars always start on "this week".
@@ -359,31 +379,70 @@
       dayTypes[3] = "bench";
       await saveDayTypes();
     }
+    // One-time recovery pause: no lifting or running from the surgery date (Oct 10, 2026)
+    // through 4 weeks out (Nov 6, 2026) — applied as one-off per-date overrides, so the
+    // regular weekly pattern resumes automatically on Nov 7 without needing to be rebuilt.
+    try {
+      const rc = await storeGet("runlift-cal-recovery-applied-v1");
+      if (!rc || !rc.value) {
+        const RECOVERY_START = new Date(2026, 9, 10);  // Oct 10, 2026
+        const RECOVERY_END = new Date(2026, 10, 6);    // Nov 6, 2026
+        const cursor = new Date(RECOVERY_START);
+        while (cursor <= RECOVERY_END) {
+          const rIso = isoDate(cursor);
+          dayTypeOverrides[rIso] = "rest";
+          runOverrides[rIso] = false;
+          cursor.setDate(cursor.getDate() + 1);
+        }
+        await saveDayTypeOverrides();
+        await saveRunOverrides();
+        await storeSet("runlift-cal-recovery-applied-v1", "true");
+      }
+    } catch (e) {}
+    // One-time: pause Yoga/Mobility for the first 2 weeks of recovery only (Oct 10-25, 2026).
+    // No override is set from Oct 26 onward, so they resume on their normal pattern automatically.
+    try {
+      const yp = await storeGet("runlift-cal-yogapause-applied-v1");
+      if (!yp || !yp.value) {
+        const PAUSE_START = new Date(2026, 9, 10);  // Oct 10, 2026
+        const PAUSE_END = new Date(2026, 9, 25);    // Oct 25, 2026
+        const cursor2 = new Date(PAUSE_START);
+        while (cursor2 <= PAUSE_END) {
+          const pIso = isoDate(cursor2);
+          yogaOverrides[pIso] = false;
+          mobilityOverrides[pIso] = false;
+          cursor2.setDate(cursor2.getDate() + 1);
+        }
+        await saveYogaOverrides();
+        await saveMobilityOverrides();
+        await storeSet("runlift-cal-yogapause-applied-v1", "true");
+      }
+    } catch (e) {}
     render();
   }
   async function saveDayTypes() {
-    try { await window.storage.set("runlift-cal-daytypes", JSON.stringify(dayTypes), false); } catch (e) {}
+    try { await storeSet("runlift-cal-daytypes", JSON.stringify(dayTypes)); } catch (e) {}
   }
   async function saveExtraRun() {
-    try { await window.storage.set("runlift-cal-extraruns", JSON.stringify(extraRun), false); } catch (e) {}
+    try { await storeSet("runlift-cal-extraruns", JSON.stringify(extraRun)); } catch (e) {}
   }
   async function saveExtraYoga() {
-    try { await window.storage.set("runlift-cal-extrayoga", JSON.stringify(extraYoga), false); } catch (e) {}
+    try { await storeSet("runlift-cal-extrayoga", JSON.stringify(extraYoga)); } catch (e) {}
   }
   async function saveExtraMobility() {
-    try { await window.storage.set("runlift-cal-extramobility", JSON.stringify(extraMobility), false); } catch (e) {}
+    try { await storeSet("runlift-cal-extramobility", JSON.stringify(extraMobility)); } catch (e) {}
   }
   async function saveYogaOverrides() {
-    try { await window.storage.set("runlift-cal-yogaoverrides", JSON.stringify(yogaOverrides), false); } catch (e) {}
+    try { await storeSet("runlift-cal-yogaoverrides", JSON.stringify(yogaOverrides)); } catch (e) {}
   }
   async function saveMobilityOverrides() {
-    try { await window.storage.set("runlift-cal-mobilityoverrides", JSON.stringify(mobilityOverrides), false); } catch (e) {}
+    try { await storeSet("runlift-cal-mobilityoverrides", JSON.stringify(mobilityOverrides)); } catch (e) {}
   }
   async function saveDayTypeOverrides() {
-    try { await window.storage.set("runlift-cal-daytypeoverrides", JSON.stringify(dayTypeOverrides), false); } catch (e) {}
+    try { await storeSet("runlift-cal-daytypeoverrides", JSON.stringify(dayTypeOverrides)); } catch (e) {}
   }
   async function saveRunOverrides() {
-    try { await window.storage.set("runlift-cal-runoverrides", JSON.stringify(runOverrides), false); } catch (e) {}
+    try { await storeSet("runlift-cal-runoverrides", JSON.stringify(runOverrides)); } catch (e) {}
   }
   // Effective on/off state for a specific date: a one-off override wins over the recurring weekly pattern.
   function effectiveYoga(dateIso, dowIndex) {
@@ -418,13 +477,13 @@
     }
   }
   async function saveChecks() {
-    try { await window.storage.set("runlift-cal-checks", JSON.stringify(checks), false); } catch (e) {}
+    try { await storeSet("runlift-cal-checks", JSON.stringify(checks)); } catch (e) {}
   }
   async function saveLogs() {
-    try { await window.storage.set("runlift-cal-logs", JSON.stringify(logs), false); } catch (e) {}
+    try { await storeSet("runlift-cal-logs", JSON.stringify(logs)); } catch (e) {}
   }
   async function saveViewMode() {
-    try { await window.storage.set("runlift-cal-viewmode", viewMode, false); } catch (e) {}
+    try { await storeSet("runlift-cal-viewmode", viewMode); } catch (e) {}
   }
 
   function confettiBurst(x, y) {
